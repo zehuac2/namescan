@@ -10,3 +10,9 @@ import Foundation
 public protocol FileSystem {
   func listDir(_ url: URL) throws -> [URL]
 }
+
+public extension FileSystem where Self == AppleFileSystem {
+  static var apple: AppleFileSystem {
+    return .init()
+  }
+}

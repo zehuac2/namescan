@@ -7,10 +7,12 @@
 
 import Foundation
 
-public enum FilenameScannerResult {
+public enum FilenameScannerResult: Equatable {
   public enum OS {
     case windows
+    case linux
   }
   
-  case invalid(os: OS)
+  case ok(url: URL)
+  case invalid(url: URL, os: OS)
 }

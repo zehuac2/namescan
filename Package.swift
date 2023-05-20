@@ -15,10 +15,14 @@ let package = Package(
     // Targets are the basic building blocks of a package, defining a module or a test suite.
     // Targets can depend on other targets in this package and products from dependencies.
     .target(name: "FilenamesScan"),
-    .target(
-      name: "filenames-scan", dependencies: [.target(name: "FilenamesScan")]),
+    .executableTarget(
+      name: "filenames-scan",
+      dependencies: ["FilenamesScan"]),
     .testTarget(
       name: "filenames-scanTests",
       dependencies: ["filenames-scan"]),
+    .testTarget(
+      name: "FilenamesScanTests",
+      dependencies: ["FilenamesScan"])
   ]
 )

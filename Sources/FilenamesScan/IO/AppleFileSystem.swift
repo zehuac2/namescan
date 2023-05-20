@@ -20,10 +20,21 @@ public struct AppleFileSystem: FileSystem {
     let resourceValues = try url.resourceValues(forKeys: [.isDirectoryKey])
     let isDirectory = resourceValues.isDirectory ?? false
     
-    if isDirectory {
-      print("is directory")
+    
+    guard isDirectory else {
+      return []
     }
     
-    return []
+    var urls = [URL]()
+    
+    if let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: nil) {
+      for item in enumerator {
+        if let url = item as? URL {
+          urls.append(url)
+        }
+      }
+    }
+    
+    return urls
   }
 }
