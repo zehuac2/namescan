@@ -10,11 +10,16 @@ import XCTest
 @testable import FilenamesScan
 
 final class FilenameScannerTests: XCTestCase {
-  func testExample() throws {
-    let filenameScanner = FilenameScanner()
-    let url = URL(string: "file:///name|")!
-    let results = filenameScanner.scan(url)
+  func testWindows() throws {
+    let invalidURLS = [
+      URL(string: "file://Root/Foo%2022%5C22.pdf")!
+    ]
     
-    XCTAssertEqual(results, [.invalid(url: url, os: .windows)])
+    let filenameScanner = FilenameScanner()
+    
+    for invalidURL in invalidURLS {
+      let results = filenameScanner.scan(invalidURL)
+      XCTAssertEqual(results, [.invalid(url: invalidURL, os: .windows)])
+    }
   }
 }
