@@ -13,3 +13,5 @@ let fileSystem = AppleFileSystem()
 let directoryScanner = DirectoryScanner(fileSystem: fileSystem, reporter: reporter)
 
 try! directoryScanner.scan(fileSystem.currentDirectory)
+
+print("Scans finished!")

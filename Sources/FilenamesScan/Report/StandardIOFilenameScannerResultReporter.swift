@@ -12,10 +12,10 @@ public struct StandardIOFilenameScannerResultReporter: FilenameScannerResultRepo
   
   public func report(_ result: FilenameScannerResult) {
     switch result {
-    case .ok(let url):
-      print("Valid: \(url.relativePath)")
     case .invalid(let url, let os):
       print("Invalid \(os): \(url.relativePath)")
+    default:
+      break
     }
   }
 }
