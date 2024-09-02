@@ -1,6 +1,6 @@
 //
 //  FilenameScannerResultReporter.swift
-//  
+//
 //
 //  Created by Zehua Chen on 5/20/23.
 //

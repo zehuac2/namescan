@@ -1,6 +1,6 @@
 //
 //  FileSystem.swift
-//  
+//
 //
 //  Created by Zehua Chen on 5/20/23.
 //
@@ -11,8 +11,8 @@ public protocol FileSystem {
   func listDir(_ url: URL) throws -> [URL]
 }
 
-public extension FileSystem where Self == AppleFileSystem {
-  static var apple: AppleFileSystem {
+extension FileSystem where Self == AppleFileSystem {
+  public static var apple: AppleFileSystem {
     return .init()
   }
 }
