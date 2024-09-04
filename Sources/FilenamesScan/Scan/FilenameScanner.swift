@@ -13,7 +13,7 @@ struct FilenameScanner {
   func scan(_ url: URL) -> [FilenameScannerResult] {
     let name = url.lastPathComponent
     var results = [FilenameScannerResult]()
-    
+
     if let invalidCharacter = findInvalidCharacterOnWindows(name) {
       results.append(.invalid(url: url, character: invalidCharacter, os: .windows))
     }
@@ -38,7 +38,7 @@ struct FilenameScanner {
         continue
       }
     }
-    
+
     return nil
   }
 
@@ -51,7 +51,7 @@ struct FilenameScanner {
         continue
       }
     }
-    
+
     return nil
   }
 }

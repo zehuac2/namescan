@@ -8,6 +8,10 @@
 import Foundation
 
 public struct AppleFileSystem: FileSystem {
+  private static let enumeratorOptions: FileManager.DirectoryEnumerationOptions = [
+    .skipsSubdirectoryDescendants
+  ]
+
   public let fileManager: FileManager = FileManager()
 
   public var currentDirectory: URL {
@@ -26,7 +30,9 @@ public struct AppleFileSystem: FileSystem {
 
     var urls = [URL]()
 
-    if let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]) {
+    if let enumerator = fileManager.enumerator(
+      at: url, includingPropertiesForKeys: nil, options: AppleFileSystem.enumeratorOptions)
+    {
       for item in enumerator {
         if let url = item as? URL {
           urls.append(url)

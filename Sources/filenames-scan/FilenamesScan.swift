@@ -13,10 +13,10 @@ import Foundation
 struct FilenamesScan: ParsableCommand {
   static let configuration: CommandConfiguration = .init(
     abstract: "Filenames scanner to detect file names that cannot be synced between OS")
-  
+
   @Argument
   var path: String = "."
-  
+
   @Option
   var reportIncrement: Int = 100
 
@@ -24,7 +24,7 @@ struct FilenamesScan: ParsableCommand {
     let reporter = StandardIOFilenameScannerResultReporter(reportIncrement: 100)
     let fileSystem = AppleFileSystem()
     var directoryScanner = DirectoryScanner(fileSystem: fileSystem, reporter: reporter)
-    
+
     try directoryScanner.scan(URL(filePath: path))
   }
 }
