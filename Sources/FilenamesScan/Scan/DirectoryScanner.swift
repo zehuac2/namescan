@@ -9,14 +9,14 @@ import Foundation
 
 public struct DirectoryScanner<FS: FileSystem, Reporter: FilenameScannerResultReporter> {
   public let fileSystem: FS
-  public let reporter: Reporter
+  public var reporter: Reporter
 
   public init(fileSystem: FS, reporter: Reporter) {
     self.fileSystem = fileSystem
     self.reporter = reporter
   }
 
-  public func scan(_ root: URL) throws {
+  public mutating func scan(_ root: URL) throws {
     var toVisits = [root]
     let scanner = FilenameScanner()
 
@@ -32,5 +32,7 @@ public struct DirectoryScanner<FS: FileSystem, Reporter: FilenameScannerResultRe
         reporter.report(result)
       }
     }
+
+    reporter.finish()
   }
 }

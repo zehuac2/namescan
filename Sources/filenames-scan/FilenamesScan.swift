@@ -15,13 +15,10 @@ struct FilenamesScan: ParsableCommand {
     abstract: "Filenames scanner to detect file names that cannot be synced between OS")
 
   func run() throws {
-    let reporter = StandardIOFilenameScannerResultReporter()
+    let reporter = StandardIOFilenameScannerResultReporter(reportIncrement: 100)
     let fileSystem = AppleFileSystem()
-    let directoryScanner = DirectoryScanner(fileSystem: fileSystem, reporter: reporter)
+    var directoryScanner = DirectoryScanner(fileSystem: fileSystem, reporter: reporter)
 
     try! directoryScanner.scan(fileSystem.currentDirectory)
-
-    print("Scans finished!")
-
   }
 }

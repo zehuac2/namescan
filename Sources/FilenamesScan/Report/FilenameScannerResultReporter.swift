@@ -8,5 +8,6 @@
 import Foundation
 
 public protocol FilenameScannerResultReporter {
-  func report(_ result: FilenameScannerResult)
+  mutating func report(_ result: FilenameScannerResult)
+  mutating func finish()
 }
