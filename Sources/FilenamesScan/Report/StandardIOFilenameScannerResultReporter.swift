@@ -25,12 +25,12 @@ public struct StandardIOFilenameScannerResultReporter: FilenameScannerResultRepo
     }
 
     switch result {
-    case .invalid(let url, let os):
+    case .invalid(let url, let character, let os):
       if isLastLineSuccess {
         print("\r", terminator: "")
         isLastLineSuccess = false
       }
-      print("Invalid \(os): \(url.relativePath)")
+      print("Invalid \(os): \(url.relativePath); \(character) is forbidden.")
     default:
       break
     }

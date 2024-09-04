@@ -18,7 +18,7 @@ public struct DirectoryScanner<FS: FileSystem, Reporter: FilenameScannerResultRe
 
   public mutating func scan(_ root: URL) throws {
     var toVisits = [root]
-    let scanner = FilenameScanner()
+    let filenameScanner = FilenameScanner()
 
     while toVisits.count > 0 {
       let toVisit = toVisits.remove(at: toVisits.count - 1)
@@ -26,7 +26,7 @@ public struct DirectoryScanner<FS: FileSystem, Reporter: FilenameScannerResultRe
 
       toVisits.append(contentsOf: children)
 
-      let results = scanner.scan(toVisit)
+      let results = filenameScanner.scan(toVisit)
 
       for result in results {
         reporter.report(result)

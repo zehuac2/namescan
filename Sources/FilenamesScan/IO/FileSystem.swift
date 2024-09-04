@@ -8,6 +8,7 @@
 import Foundation
 
 public protocol FileSystem {
+  /// List immediate children of the url
   func listDir(_ url: URL) throws -> [URL]
 }
 

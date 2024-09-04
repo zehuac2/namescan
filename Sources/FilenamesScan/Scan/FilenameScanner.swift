@@ -13,13 +13,13 @@ struct FilenameScanner {
   func scan(_ url: URL) -> [FilenameScannerResult] {
     let name = url.lastPathComponent
     var results = [FilenameScannerResult]()
-
-    if isValidOnWindows(name) {
-      results.append(.invalid(url: url, os: .windows))
+    
+    if let invalidCharacter = findInvalidCharacterOnWindows(name) {
+      results.append(.invalid(url: url, character: invalidCharacter, os: .windows))
     }
 
-    if isValidOnLinux(name) {
-      results.append(.invalid(url: url, os: .linux))
+    if let invalidCharacter = findInvalidCharacterOnLinux(name) {
+      results.append(.invalid(url: url, character: invalidCharacter, os: .linux))
     }
 
     if results.isEmpty {
@@ -29,25 +29,29 @@ struct FilenameScanner {
     return results
   }
 
-  private func isValidOnWindows(_ filename: String) -> Bool {
-    return filename.contains { char in
-      switch char {
+  private func findInvalidCharacterOnWindows(_ filename: String) -> Character? {
+    for character in filename {
+      switch character {
       case "<", ">", ":", "\"", "/", "\\", "|", "?", "*":
-        return true
+        return character
       default:
-        return false
+        continue
       }
     }
+    
+    return nil
   }
 
-  private func isValidOnLinux(_ filename: String) -> Bool {
-    return filename.contains { char in
-      switch char {
+  private func findInvalidCharacterOnLinux(_ filename: String) -> Character? {
+    for character in filename {
+      switch character {
       case "/":
-        return true
+        return character
       default:
-        return false
+        continue
       }
     }
+    
+    return nil
   }
 }

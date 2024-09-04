@@ -26,7 +26,7 @@ public struct AppleFileSystem: FileSystem {
 
     var urls = [URL]()
 
-    if let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: nil) {
+    if let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]) {
       for item in enumerator {
         if let url = item as? URL {
           urls.append(url)

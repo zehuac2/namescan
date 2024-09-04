@@ -14,5 +14,5 @@ public enum FilenameScannerResult: Equatable {
   }
 
   case ok(url: URL)
-  case invalid(url: URL, os: OS)
+  case invalid(url: URL, character: Character, os: OS)
 }
