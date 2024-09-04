@@ -9,7 +9,8 @@ import Foundation
 
 public struct StandardIOFilenameScannerResultReporter: FilenameScannerResultReporter {
   let reportIncrement: Int
-  var count: Int = 0
+  private var count: Int = 0
+  private var isLastLineSuccess: Bool = false
 
   public init(reportIncrement: Int) {
     self.reportIncrement = reportIncrement
@@ -20,10 +21,15 @@ public struct StandardIOFilenameScannerResultReporter: FilenameScannerResultRepo
 
     if count % reportIncrement == 0 {
       print("\r\(count) items scanned", terminator: "")
+      isLastLineSuccess = true
     }
 
     switch result {
     case .invalid(let url, let os):
+      if isLastLineSuccess {
+        print("\r", terminator: "")
+        isLastLineSuccess = false
+      }
       print("Invalid \(os): \(url.relativePath)")
     default:
       break
