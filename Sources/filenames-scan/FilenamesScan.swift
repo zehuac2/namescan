@@ -17,7 +17,7 @@ struct FilenamesScan: ParsableCommand {
   @Argument
   var path: String = "."
 
-  @Option
+  @Option(name: .shortAndLong)
   var reportIncrement: Int = 100
 
   func run() throws {
