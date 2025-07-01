@@ -6,13 +6,14 @@
 //
 
 import ArgumentParser
-import FilenamesScan
 import Foundation
+import NameScanLib
 
 @main
-struct FilenamesScan: ParsableCommand {
+struct NameScan: ParsableCommand {
   static let configuration: CommandConfiguration = .init(
-    abstract: "Filenames scanner to detect file names that cannot be synced between OS")
+    commandName: "namescan",
+    abstract: "File name scanner to detect file names that cannot be synced between OS")
 
   @Argument
   var path: String = "."

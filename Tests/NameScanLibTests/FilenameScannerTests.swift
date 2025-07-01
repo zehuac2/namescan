@@ -7,7 +7,7 @@
 import Foundation
 import Testing
 
-@testable import FilenamesScan
+@testable import NameScanLib
 
 @Suite("FilenameScannerTests")
 struct FilenameScannerTests {
