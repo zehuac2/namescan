@@ -6,8 +6,11 @@
 //
 
 import Foundation
+import RegexBuilder
 
 struct FilenameScanner {
+  static let windowsForbidden: Regex<Substring> = #/[<>:"/\\|?*]/#
+  static let macOSForbidden: Regex<Substring> = #/[:]/#
   init() {}
 
   func scan(_ url: URL) -> [FilenameScannerResult] {
@@ -34,28 +37,16 @@ struct FilenameScanner {
   }
 
   private func findInvalidCharacterOnWindows(_ filename: String) -> Character? {
-    for character in filename {
-      switch character {
-      case "<", ">", ":", "\"", "/", "\\", "|", "?", "*":
-        return character
-      default:
-        continue
-      }
+    if let match = filename.firstMatch(of: Self.windowsForbidden) {
+      return match.output.first
     }
 
     return nil
   }
 
   private func findInvalidCharacterOnMacOS(_ filename: String) -> Character? {
-    // macOS allows '/' in filenames, but it is stored as ':' in the file system.
-    // So we do not need to check for '/' here.
-    for character in filename {
-      switch character {
-      case ":":
-        return character
-      default:
-        continue
-      }
+    if let match = filename.firstMatch(of: Self.macOSForbidden) {
+      return match.output.first
     }
 
     return nil
