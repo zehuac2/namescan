@@ -17,16 +17,19 @@ struct FilenameScanner {
     let name = url.lastPathComponent
     var results = [FilenameScannerResult]()
 
-    if let invalidCharacter = findInvalidCharacterOnWindows(name) {
-      results.append(.invalid(url: url, character: invalidCharacter, os: .windows))
+    let windowsMatches = findInvalidCharactersOnWindows(name)
+    if !windowsMatches.isEmpty {
+      results.append(.invalid(url: url, matches: windowsMatches, os: .windows))
     }
 
-    if let invalidCharacter = findInvalidCharacterOnMacOS(name) {
-      results.append(.invalid(url: url, character: invalidCharacter, os: .macOS))
+    let macOSMatches = findInvalidCharactersOnMacOS(name)
+    if !macOSMatches.isEmpty {
+      results.append(.invalid(url: url, matches: macOSMatches, os: .macOS))
     }
 
-    if let invalidCharacter = findInvalidCharacterOnLinux(name) {
-      results.append(.invalid(url: url, character: invalidCharacter, os: .linux))
+    let linuxMatches = findInvalidCharactersOnLinux(name)
+    if !linuxMatches.isEmpty {
+      results.append(.invalid(url: url, matches: linuxMatches, os: .linux))
     }
 
     if results.isEmpty {
@@ -36,34 +39,18 @@ struct FilenameScanner {
     return results
   }
 
-  private func findInvalidCharacterOnWindows(_ filename: String) -> Character? {
-    if let match = filename.firstMatch(of: Self.windowsForbidden) {
-      return match.output.first
-    }
-
-    return nil
+  private func findInvalidCharactersOnWindows(_ filename: String) -> [Regex<Substring>.Match] {
+    return filename.matches(of: Self.windowsForbidden)
   }
 
-  private func findInvalidCharacterOnMacOS(_ filename: String) -> Character? {
-    if let match = filename.firstMatch(of: Self.macOSForbidden) {
-      return match.output.first
-    }
-
-    return nil
+  private func findInvalidCharactersOnMacOS(_ filename: String) -> [Regex<Substring>.Match] {
+    return filename.matches(of: Self.macOSForbidden)
   }
 
-  private func findInvalidCharacterOnLinux(_ filename: String) -> Character? {
-    for character in filename {
-      switch character {
-      // macOS's Finder let you create files with '/' but is is stored as `:`;
-      // Both Linux and Windows do not allow '/' in filenames so there is no need to check for it.
-      case "/":
-        continue
-      default:
-        continue
-      }
-    }
-
-    return nil
+  private func findInvalidCharactersOnLinux(_ filename: String) -> [Regex<Substring>.Match] {
+    // For Linux, we currently don't have any forbidden characters in the regex
+    // The logic was just checking for '/' which is allowed on Linux
+    // So we return an empty array for now
+    return []
   }
 }
