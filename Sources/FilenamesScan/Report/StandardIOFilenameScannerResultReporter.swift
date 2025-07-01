@@ -17,13 +17,6 @@ public struct StandardIOFilenameScannerResultReporter: FilenameScannerResultRepo
   }
 
   public mutating func report(_ result: FilenameScannerResult) {
-    count += 1
-
-    if count % reportIncrement == 0 {
-      print("\r\(count) items scanned", terminator: "")
-      isLastLineSuccess = true
-    }
-
     switch result {
     case .invalid(let url, let matches, let os):
       if isLastLineSuccess {
@@ -34,6 +27,15 @@ public struct StandardIOFilenameScannerResultReporter: FilenameScannerResultRepo
       print("Invalid \(os): \(url.relativePath); \(characters) forbidden.")
     default:
       break
+    }
+  }
+
+  public mutating func finishFile() {
+    count += 1
+
+    if count % reportIncrement == 0 {
+      print("\r\(count) items scanned", terminator: "")
+      isLastLineSuccess = true
     }
   }
 

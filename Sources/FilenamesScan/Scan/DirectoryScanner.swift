@@ -31,6 +31,8 @@ public struct DirectoryScanner<FS: FileSystem, Reporter: FilenameScannerResultRe
       for result in results {
         reporter.report(result)
       }
+
+      reporter.finishFile()
     }
 
     reporter.finish()
