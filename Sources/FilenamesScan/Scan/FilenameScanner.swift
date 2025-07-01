@@ -18,6 +18,10 @@ struct FilenameScanner {
       results.append(.invalid(url: url, character: invalidCharacter, os: .windows))
     }
 
+    if let invalidCharacter = findInvalidCharacterOnMacOS(name) {
+      results.append(.invalid(url: url, character: invalidCharacter, os: .macOS))
+    }
+
     if let invalidCharacter = findInvalidCharacterOnLinux(name) {
       results.append(.invalid(url: url, character: invalidCharacter, os: .linux))
     }
@@ -33,6 +37,21 @@ struct FilenameScanner {
     for character in filename {
       switch character {
       case "<", ">", ":", "\"", "/", "\\", "|", "?", "*":
+        return character
+      default:
+        continue
+      }
+    }
+
+    return nil
+  }
+
+  private func findInvalidCharacterOnMacOS(_ filename: String) -> Character? {
+    // macOS allows '/' in filenames, but it is stored as ':' in the file system.
+    // So we do not need to check for '/' here.
+    for character in filename {
+      switch character {
+      case ":":
         return character
       default:
         continue

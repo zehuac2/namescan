@@ -11,6 +11,7 @@ public enum FilenameScannerResult: Equatable, CustomStringConvertible {
   public enum OS {
     case windows
     case linux
+    case macOS
   }
 
   case ok(url: URL)

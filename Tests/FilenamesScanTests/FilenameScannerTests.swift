@@ -15,8 +15,9 @@ struct FilenameScannerTests {
     let url = URL(filePath: path)
     let filenameScanner = FilenameScanner()
     let results = filenameScanner.scan(url)
+    let containsExpected = results.contains(.invalid(url: url, character: invalidCharacter, os: os))
 
-    #expect(results == [.invalid(url: url, character: invalidCharacter, os: os)])
+    #expect(containsExpected)
   }
 
   @Test func windows() async throws {
@@ -27,5 +28,9 @@ struct FilenameScannerTests {
     testPath("test:.txt", invalidCharacter: ":", os: .windows)
     testPath("test|", invalidCharacter: "|", os: .windows)
     testPath("te\"st.txt", invalidCharacter: "\"", os: .windows)
+  }
+
+  @Test func macOS() async throws {
+    testPath("test:.txt", invalidCharacter: ":", os: .macOS)
   }
 }
