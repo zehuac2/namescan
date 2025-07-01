@@ -45,8 +45,10 @@ struct FilenameScanner {
   private func findInvalidCharacterOnLinux(_ filename: String) -> Character? {
     for character in filename {
       switch character {
+      // macOS's Finder let you create files with '/' but is is stored as `:`;
+      // Both Linux and Windows do not allow '/' in filenames so there is no need to check for it.
       case "/":
-        return character
+        continue
       default:
         continue
       }

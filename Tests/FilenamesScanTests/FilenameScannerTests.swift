@@ -28,8 +28,4 @@ struct FilenameScannerTests {
     testPath("test|", invalidCharacter: "|", os: .windows)
     testPath("te\"st.txt", invalidCharacter: "\"", os: .windows)
   }
-
-  @Test func linux() async throws {
-    testPath("test/test.txt", invalidCharacter: "/", os: .linux)
-  }
 }
