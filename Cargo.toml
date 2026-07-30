@@ -1,0 +1,8 @@
+[package]
+name = "namescan"
+version = "0.1.0"
+edition = "2024"
+description = "The program finds the characters that Windows and macOS do not permit in file names"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
