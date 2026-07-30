@@ -1,0 +1,159 @@
+name: Create Release Assets
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.event.release.tag_name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux aarch64 cross linker
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+
+          case "${{ runner.os }}" in
+            macOS)
+              pairs="aarch64-apple-darwin:macos-arm64 x86_64-apple-darwin:macos-x86_64"
+              ;;
+            Linux)
+              pairs="x86_64-unknown-linux-gnu:linux-x86_64-gnu aarch64-unknown-linux-gnu:linux-arm64-gnu"
+              ;;
+            Windows)
+              pairs="x86_64-pc-windows-msvc:windows-x64-msvc aarch64-pc-windows-msvc:windows-arm64-msvc"
+              ;;
+          esac
+
+          mkdir -p checksums
+
+          for pair in $pairs; do
+            target="${pair%%:*}"
+            asset_token="${pair##*:}"
+
+            rustup target add "$target" || rustup target add "$target" --force-non-host
+
+            if [ "$target" = "aarch64-unknown-linux-gnu" ]; then
+              export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+            fi
+
+            cargo build --release --target "$target" --verbose
+
+            name="namescan-${version}-${asset_token}"
+            bin="target/$target/release/namescan"
+            stage="$(mktemp -d)"
+
+            if [ "${{ runner.os }}" = "Windows" ]; then
+              cp "$bin.exe" "$stage/namescan.exe"
+              asset="$name.zip"
+              (cd "$stage" && 7z a "$OLDPWD/$asset" namescan.exe)
+            else
+              cp "$bin" "$stage/namescan"
+              asset="$name.tar.gz"
+              tar -C "$stage" -czf "$asset" namescan
+            fi
+
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum "$asset" > "checksums/$asset.sha256"
+            else
+              shasum -a 256 "$asset" > "checksums/$asset.sha256"
+            fi
+
+            gh release upload "$TAG" "$asset" --clobber
+          done
+
+      - name: Upload checksum artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: checksums-${{ matrix.os }}
+          path: checksums/*.sha256
+          retention-days: 1
+
+  checksums:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download checksum artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: checksums-*
+          merge-multiple: true
+          path: checksums
+
+      - name: Build SHA256SUMS
+        run: cat checksums/*.sha256 | sort -k2 > SHA256SUMS
+
+      - name: Upload SHA256SUMS
+        run: gh release upload "${{ github.event.release.tag_name }}" SHA256SUMS --clobber
+
+  cleanup:
+    needs: checksums
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Delete assets from older releases
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const currentTag = context.payload.release.tag_name;
+            const { owner, repo } = context.repo;
+
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner,
+              repo,
+              per_page: 100,
+            });
+
+            const sorted = [...releases].sort(
+              (a, b) => new Date(b.created_at) - new Date(a.created_at),
+            );
+
+            // Keep the last 2 releases. This prevents installer errors when
+            // the latest release is too new.
+            const keepTags = new Set([
+              currentTag,
+              ...sorted.map((r) => r.tag_name).filter((t) => t !== currentTag).slice(0, 2),
+            ]);
+
+            for (const release of releases) {
+              if (keepTags.has(release.tag_name)) continue;
+
+              const assets = await github.paginate(github.rest.repos.listReleaseAssets, {
+                owner,
+                repo,
+                release_id: release.id,
+                per_page: 100,
+              });
+
+              for (const asset of assets) {
+                await github.rest.repos.deleteReleaseAsset({
+                  owner,
+                  repo,
+                  asset_id: asset.id,
+                });
+              }
+            }

@@ -1,0 +1,33 @@
+class Namescan < Formula
+  desc "File name scanner to detect file names that cannot be synced between OS"
+  homepage "https://github.com/zehuac2/namescan"
+  version "{{VERSION}}"
+
+  on_macos do
+    if Hardware::CPU.arm?
+      url "https://github.com/zehuac2/namescan/releases/download/{{TAG}}/namescan-{{VERSION}}-macos-arm64.tar.gz"
+      sha256 "{{SHA256_MACOS_ARM64}}"
+    else
+      url "https://github.com/zehuac2/namescan/releases/download/{{TAG}}/namescan-{{VERSION}}-macos-x86_64.tar.gz"
+      sha256 "{{SHA256_MACOS_X86_64}}"
+    end
+  end
+
+  on_linux do
+    if Hardware::CPU.arm?
+      url "https://github.com/zehuac2/namescan/releases/download/{{TAG}}/namescan-{{VERSION}}-linux-arm64-gnu.tar.gz"
+      sha256 "{{SHA256_LINUX_ARM64}}"
+    else
+      url "https://github.com/zehuac2/namescan/releases/download/{{TAG}}/namescan-{{VERSION}}-linux-x86_64-gnu.tar.gz"
+      sha256 "{{SHA256_LINUX_X86_64}}"
+    end
+  end
+
+  def install
+    bin.install "namescan"
+  end
+
+  test do
+    system "#{bin}/namescan", "--help"
+  end
+end
