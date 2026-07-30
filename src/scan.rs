@@ -206,7 +206,19 @@ mod tests {
 
     #[test]
     fn windows() {
-        assert_invalid("\\test.txt", &['\\'], Os::Windows);
+        // `Path::file_name` treats '\\' as a separator on Windows, so a
+        // `PathBuf` cannot carry a file name that contains it. Test the
+        // character-detection logic directly on the raw name instead.
+        let matches =
+            FilenameScanner::find_forbidden("\\test.txt", FilenameScanner::WINDOWS_FORBIDDEN);
+        assert_eq!(
+            matches,
+            vec![CharMatch {
+                character: '\\',
+                index: 0
+            }]
+        );
+
         assert_invalid("test?.txt", &['?'], Os::Windows);
         assert_invalid("<test.txt", &['<'], Os::Windows);
         assert_invalid("test>.txt", &['>'], Os::Windows);
