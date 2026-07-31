@@ -2,6 +2,17 @@
 
 > File name scanner to detect file names that cannot be synced between OS
 
+## Installation
+
+```sh
+# with mise
+mise use -g github:zehuac2/namescan
+
+# with brew
+brew tap zehuac2/tools
+brew install zehuac2/tools/namescan
+```
+
 ## Usage
 
 ```sh
