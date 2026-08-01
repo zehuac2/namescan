@@ -71,6 +71,30 @@ impl fmt::Display for ScanResult {
     }
 }
 
+/// A table that tells for each byte if the byte is a forbidden character.
+type ForbiddenTable = [bool; 256];
+
+/// Makes a [`ForbiddenTable`] from a list of forbidden characters.
+///
+/// The table gives a test that takes a constant time. A search with
+/// `slice::contains` compares the character with each character in the list.
+///
+/// The function runs at compile time. It stops the build if a character is
+/// not ASCII, because the table holds one entry for each byte value.
+const fn make_table(forbidden: &[char]) -> ForbiddenTable {
+    let mut table = [false; 256];
+    let mut index = 0;
+
+    while index < forbidden.len() {
+        let character = forbidden[index];
+        assert!(character.is_ascii(), "a forbidden character must be ASCII");
+        table[character as usize] = true;
+        index += 1;
+    }
+
+    table
+}
+
 /// The scanner that finds forbidden characters in file names.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FilenameScanner;
@@ -80,6 +104,11 @@ impl FilenameScanner {
     pub const WINDOWS_FORBIDDEN: &'static [char] = &['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
     /// Characters forbidden in macOS file names.
     pub const MACOS_FORBIDDEN: &'static [char] = &[':'];
+
+    /// The table for [`Self::WINDOWS_FORBIDDEN`].
+    const WINDOWS_TABLE: ForbiddenTable = make_table(Self::WINDOWS_FORBIDDEN);
+    /// The table for [`Self::MACOS_FORBIDDEN`].
+    const MACOS_TABLE: ForbiddenTable = make_table(Self::MACOS_FORBIDDEN);
 
     pub fn new() -> Self {
         Self
@@ -98,7 +127,7 @@ impl FilenameScanner {
 
         let mut results = Vec::new();
 
-        let windows_matches = Self::find_forbidden(&name, Self::WINDOWS_FORBIDDEN);
+        let windows_matches = Self::find_forbidden(&name, &Self::WINDOWS_TABLE);
         if !windows_matches.is_empty() {
             results.push(ScanResult::Invalid {
                 path: path.to_path_buf(),
@@ -107,7 +136,7 @@ impl FilenameScanner {
             });
         }
 
-        let macos_matches = Self::find_forbidden(&name, Self::MACOS_FORBIDDEN);
+        let macos_matches = Self::find_forbidden(&name, &Self::MACOS_TABLE);
         if !macos_matches.is_empty() {
             results.push(ScanResult::Invalid {
                 path: path.to_path_buf(),
@@ -125,10 +154,30 @@ impl FilenameScanner {
         results
     }
 
-    fn find_forbidden(name: &str, forbidden: &[char]) -> Vec<CharMatch> {
+    fn find_forbidden(name: &str, table: &ForbiddenTable) -> Vec<CharMatch> {
+        // Examine the bytes and not the characters. All the forbidden
+        // characters are ASCII. Each byte of a character with more than one
+        // byte is 128 or more. Thus a test of the bytes cannot give a false
+        // match, and this pass does not decode the UTF-8 data.
+        //
+        // The loop has no branch and does no allocation. Almost all file
+        // names are correct. Thus the function usually stops after the loop.
+        let mut is_invalid = false;
+        for byte in name.as_bytes() {
+            is_invalid |= table[*byte as usize];
+        }
+
+        if !is_invalid {
+            return Vec::new();
+        }
+
+        // Only a file name that has a forbidden character comes here. Thus
+        // the speed of this second pass is not important. The pass decodes
+        // the characters, because `CharMatch::index` counts the characters
+        // and does not count the bytes.
         name.chars()
             .enumerate()
-            .filter(|(_, c)| forbidden.contains(c))
+            .filter(|(_, c)| c.is_ascii() && table[*c as usize])
             .map(|(index, character)| CharMatch { character, index })
             .collect()
     }
@@ -225,7 +274,7 @@ mod tests {
         // `PathBuf` cannot carry a file name that contains it. Test the
         // character-detection logic directly on the raw name instead.
         let matches =
-            FilenameScanner::find_forbidden("\\test.txt", FilenameScanner::WINDOWS_FORBIDDEN);
+            FilenameScanner::find_forbidden("\\test.txt", &FilenameScanner::WINDOWS_TABLE);
         assert_eq!(
             matches,
             vec![CharMatch {
@@ -243,6 +292,28 @@ mod tests {
 
         // More than one forbidden character in one file name
         assert_invalid("test<>?.txt", &['<', '>', '?'], Os::Windows);
+    }
+
+    #[test]
+    fn characters_with_more_than_one_byte_give_no_match() {
+        // Each byte of these characters is 128 or more. Thus no byte can
+        // match a forbidden ASCII character.
+        let matches =
+            FilenameScanner::find_forbidden("café_日本語.txt", &FilenameScanner::WINDOWS_TABLE);
+        assert!(matches.is_empty(), "got {matches:?}");
+    }
+
+    #[test]
+    fn index_counts_the_characters_and_not_the_bytes() {
+        // The character 'é' has two bytes. The index of ':' is 1 and not 2.
+        let matches = FilenameScanner::find_forbidden("é:x", &FilenameScanner::WINDOWS_TABLE);
+        assert_eq!(
+            matches,
+            vec![CharMatch {
+                character: ':',
+                index: 1
+            }]
+        );
     }
 
     #[test]
