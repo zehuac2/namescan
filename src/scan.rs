@@ -152,22 +152,37 @@ impl<FS: FileSystem, R: Reporter> DirectoryScanner<FS, R> {
     }
 
     pub fn scan(&mut self, root: &Path) -> io::Result<()> {
-        let mut to_visit = vec![root.to_path_buf()];
         let filename_scanner = FilenameScanner::new();
 
-        while let Some(path) = to_visit.pop() {
-            let children = self.file_system.list_dir(&path)?;
-            to_visit.extend(children);
+        // Scan the name of the root. The loop below scans only the children.
+        self.scan_name(&filename_scanner, root);
 
-            for result in filename_scanner.scan(&path) {
-                self.reporter.report(&result);
+        let mut to_visit = vec![root.to_path_buf()];
+
+        while let Some(directory) = to_visit.pop() {
+            for entry in self.file_system.list_dir(&directory)? {
+                self.scan_name(&filename_scanner, &entry.path);
+
+                // Visit only the children that are directories. The file
+                // system gives the type of each child. Thus the scanner does
+                // no system call to find the type.
+                if entry.is_dir {
+                    to_visit.push(entry.path);
+                }
             }
-
-            self.reporter.finish_file();
         }
 
         self.reporter.finish();
         Ok(())
+    }
+
+    /// Scans the file name of `path` and sends the results to the reporter.
+    fn scan_name(&mut self, filename_scanner: &FilenameScanner, path: &Path) {
+        for result in filename_scanner.scan(path) {
+            self.reporter.report(&result);
+        }
+
+        self.reporter.finish_file();
     }
 }
 
@@ -238,13 +253,29 @@ mod tests {
         assert_invalid("test:file:name.txt", &[':', ':'], Os::MacOs);
     }
 
+    use crate::io::DirEntry;
+
     struct MockFileSystem {
-        children: HashMap<PathBuf, Vec<PathBuf>>,
+        children: HashMap<PathBuf, Vec<DirEntry>>,
     }
 
     impl FileSystem for MockFileSystem {
-        fn list_dir(&self, path: &Path) -> io::Result<Vec<PathBuf>> {
+        fn list_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
             Ok(self.children.get(path).cloned().unwrap_or_default())
+        }
+    }
+
+    fn file(path: &str) -> DirEntry {
+        DirEntry {
+            path: PathBuf::from(path),
+            is_dir: false,
+        }
+    }
+
+    fn directory(path: &str) -> DirEntry {
+        DirEntry {
+            path: PathBuf::from(path),
+            is_dir: true,
         }
     }
 
@@ -275,12 +306,9 @@ mod tests {
         let mut children = HashMap::new();
         children.insert(
             root.clone(),
-            vec![PathBuf::from("/root/ok.txt"), PathBuf::from("/root/sub")],
+            vec![file("/root/ok.txt"), directory("/root/sub")],
         );
-        children.insert(
-            PathBuf::from("/root/sub"),
-            vec![PathBuf::from("/root/sub/bad:.txt")],
-        );
+        children.insert(PathBuf::from("/root/sub"), vec![file("/root/sub/bad:.txt")]);
 
         let mut scanner =
             DirectoryScanner::new(MockFileSystem { children }, RecordingReporter::default());
