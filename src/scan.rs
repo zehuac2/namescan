@@ -120,61 +120,75 @@ impl FilenameScanner {
     /// file name rule. The function returns one [`ScanResult::Ok`] when the
     /// file name has no forbidden characters.
     pub fn scan(&self, path: &Path) -> Vec<ScanResult> {
-        let name = path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default();
+        let name = path.file_name().unwrap_or_default();
 
+        // Examine the raw bytes of the name. `OsStr::to_string_lossy` makes
+        // a `String` for each file name, also for a correct name. The bytes
+        // of an `OsStr` hold each ASCII character as itself on all the
+        // platforms. All the forbidden characters are ASCII. Thus the tables
+        // work on the raw bytes and the scan needs no conversion.
+        let bytes = name.as_encoded_bytes();
+
+        let has_windows_match = Self::has_forbidden(bytes, &Self::WINDOWS_TABLE);
+        let has_macos_match = Self::has_forbidden(bytes, &Self::MACOS_TABLE);
+
+        // Linux forbids only '/'. A file name cannot contain '/'.
+
+        if !has_windows_match && !has_macos_match {
+            return vec![ScanResult::Ok(path.to_path_buf())];
+        }
+
+        // Make the text of the name here. Only a name that has a forbidden
+        // character comes to this point, and the report needs the
+        // characters.
+        let text = name.to_string_lossy();
         let mut results = Vec::new();
 
-        let windows_matches = Self::find_forbidden(&name, &Self::WINDOWS_TABLE);
-        if !windows_matches.is_empty() {
+        if has_windows_match {
             results.push(ScanResult::Invalid {
                 path: path.to_path_buf(),
-                matches: windows_matches,
+                matches: Self::collect_forbidden(&text, &Self::WINDOWS_TABLE),
                 os: Os::Windows,
             });
         }
 
-        let macos_matches = Self::find_forbidden(&name, &Self::MACOS_TABLE);
-        if !macos_matches.is_empty() {
+        if has_macos_match {
             results.push(ScanResult::Invalid {
                 path: path.to_path_buf(),
-                matches: macos_matches,
+                matches: Self::collect_forbidden(&text, &Self::MACOS_TABLE),
                 os: Os::MacOs,
             });
-        }
-
-        // Linux forbids only '/'. A file name cannot contain '/'.
-
-        if results.is_empty() {
-            results.push(ScanResult::Ok(path.to_path_buf()));
         }
 
         results
     }
 
-    fn find_forbidden(name: &str, table: &ForbiddenTable) -> Vec<CharMatch> {
-        // Examine the bytes and not the characters. All the forbidden
-        // characters are ASCII. Each byte of a character with more than one
-        // byte is 128 or more. Thus a test of the bytes cannot give a false
-        // match, and this pass does not decode the UTF-8 data.
+    /// Tells if `bytes` holds a character that `table` forbids.
+    ///
+    /// This is the fast pass. It runs for each file name in the tree.
+    fn has_forbidden(bytes: &[u8], table: &ForbiddenTable) -> bool {
+        // Examine the bytes and not the characters. Each byte of a character
+        // with more than one byte is 128 or more. All the forbidden
+        // characters are ASCII. Thus a test of the bytes cannot give a false
+        // match, and this pass does not decode the data.
         //
         // The loop has no branch and does no allocation. Almost all file
-        // names are correct. Thus the function usually stops after the loop.
-        let mut is_invalid = false;
-        for byte in name.as_bytes() {
-            is_invalid |= table[*byte as usize];
+        // names are correct. Thus the scan usually does no more work.
+        let mut result = false;
+        for byte in bytes {
+            result |= table[*byte as usize];
         }
 
-        if !is_invalid {
-            return Vec::new();
-        }
+        result
+    }
 
-        // Only a file name that has a forbidden character comes here. Thus
-        // the speed of this second pass is not important. The pass decodes
-        // the characters, because `CharMatch::index` counts the characters
-        // and does not count the bytes.
+    /// Collects the characters in `name` that `table` forbids.
+    ///
+    /// This is the slow pass. It runs only for a file name that has a
+    /// forbidden character. Thus its speed is not important.
+    fn collect_forbidden(name: &str, table: &ForbiddenTable) -> Vec<CharMatch> {
+        // This pass decodes the characters, because `CharMatch::index`
+        // counts the characters and does not count the bytes.
         name.chars()
             .enumerate()
             .filter(|(_, c)| c.is_ascii() && table[*c as usize])
@@ -274,7 +288,7 @@ mod tests {
         // `PathBuf` cannot carry a file name that contains it. Test the
         // character-detection logic directly on the raw name instead.
         let matches =
-            FilenameScanner::find_forbidden("\\test.txt", &FilenameScanner::WINDOWS_TABLE);
+            FilenameScanner::collect_forbidden("\\test.txt", &FilenameScanner::WINDOWS_TABLE);
         assert_eq!(
             matches,
             vec![CharMatch {
@@ -298,21 +312,41 @@ mod tests {
     fn characters_with_more_than_one_byte_give_no_match() {
         // Each byte of these characters is 128 or more. Thus no byte can
         // match a forbidden ASCII character.
-        let matches =
-            FilenameScanner::find_forbidden("café_日本語.txt", &FilenameScanner::WINDOWS_TABLE);
-        assert!(matches.is_empty(), "got {matches:?}");
+        let name = "café_日本語.txt";
+        assert!(!FilenameScanner::has_forbidden(
+            name.as_bytes(),
+            &FilenameScanner::WINDOWS_TABLE
+        ));
     }
 
     #[test]
     fn index_counts_the_characters_and_not_the_bytes() {
         // The character 'é' has two bytes. The index of ':' is 1 and not 2.
-        let matches = FilenameScanner::find_forbidden("é:x", &FilenameScanner::WINDOWS_TABLE);
+        let matches = FilenameScanner::collect_forbidden("é:x", &FilenameScanner::WINDOWS_TABLE);
         assert_eq!(
             matches,
             vec![CharMatch {
                 character: ':',
                 index: 1
             }]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_name_that_is_not_valid_utf8_gives_a_match() {
+        use std::os::unix::ffi::OsStrExt;
+
+        // The byte 0xFF is not valid UTF-8. The scan reads the raw bytes,
+        // thus it finds the colon. The report converts the name later.
+        let path = PathBuf::from(std::ffi::OsStr::from_bytes(b"bad\xFF:name.txt"));
+        let results = FilenameScanner::new().scan(&path);
+
+        assert!(
+            results
+                .iter()
+                .any(|result| matches!(result, ScanResult::Invalid { os: Os::MacOs, .. })),
+            "got {results:?}"
         );
     }
 
