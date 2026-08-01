@@ -1,6 +1,6 @@
 use std::fmt;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::io::FileSystem;
 use crate::report::Reporter;
@@ -39,17 +39,22 @@ impl fmt::Display for CharMatch {
 }
 
 /// The result of the scan of a single file name.
+///
+/// The result borrows the path and does not own it. A `PathBuf` copies the
+/// full path, thus an owned path made one allocation and one copy for each
+/// item in the tree. The reporter reads the path and then the program
+/// discards the result, thus the result does not need its own path.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ScanResult {
-    Ok(PathBuf),
+pub enum ScanResult<'a> {
+    Ok(&'a Path),
     Invalid {
-        path: PathBuf,
+        path: &'a Path,
         matches: Vec<CharMatch>,
         os: Os,
     },
 }
 
-impl fmt::Display for ScanResult {
+impl fmt::Display for ScanResult<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ScanResult::Ok(path) => write!(f, "OK: {}", path.display()),
@@ -119,7 +124,7 @@ impl FilenameScanner {
     /// The function returns one [`ScanResult::Invalid`] for each violated
     /// file name rule. The function returns one [`ScanResult::Ok`] when the
     /// file name has no forbidden characters.
-    pub fn scan(&self, path: &Path) -> Vec<ScanResult> {
+    pub fn scan<'a>(&self, path: &'a Path) -> Vec<ScanResult<'a>> {
         let name = path.file_name().unwrap_or_default();
 
         // Examine the raw bytes of the name. `OsStr::to_string_lossy` makes
@@ -135,7 +140,7 @@ impl FilenameScanner {
         // Linux forbids only '/'. A file name cannot contain '/'.
 
         if !has_windows_match && !has_macos_match {
-            return vec![ScanResult::Ok(path.to_path_buf())];
+            return vec![ScanResult::Ok(path)];
         }
 
         // Make the text of the name here. Only a name that has a forbidden
@@ -146,7 +151,7 @@ impl FilenameScanner {
 
         if has_windows_match {
             results.push(ScanResult::Invalid {
-                path: path.to_path_buf(),
+                path,
                 matches: Self::collect_forbidden(&text, &Self::WINDOWS_TABLE),
                 os: Os::Windows,
             });
@@ -154,7 +159,7 @@ impl FilenameScanner {
 
         if has_macos_match {
             results.push(ScanResult::Invalid {
-                path: path.to_path_buf(),
+                path,
                 matches: Self::collect_forbidden(&text, &Self::MACOS_TABLE),
                 os: Os::MacOs,
             });
@@ -253,6 +258,7 @@ impl<FS: FileSystem, R: Reporter> DirectoryScanner<FS, R> {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    use std::path::PathBuf;
 
     fn assert_invalid(path: &str, expected_characters: &[char], os: Os) {
         let scanner = FilenameScanner::new();
@@ -384,16 +390,26 @@ mod tests {
         }
     }
 
+    /// A record of one reported result. `os` is `None` for a correct name.
+    ///
+    /// The reporter keeps owned data, because a [`ScanResult`] borrows the
+    /// path and does not live longer than the call to `report`.
+    type Record = (PathBuf, Option<Os>);
+
     #[derive(Default)]
     struct RecordingReporter {
-        reported: Vec<ScanResult>,
+        reported: Vec<Record>,
         files: usize,
         finished: bool,
     }
 
     impl Reporter for RecordingReporter {
-        fn report(&mut self, result: &ScanResult) {
-            self.reported.push(result.clone());
+        fn report(&mut self, result: &ScanResult<'_>) {
+            let record = match result {
+                ScanResult::Ok(path) => (path.to_path_buf(), None),
+                ScanResult::Invalid { path, os, .. } => (path.to_path_buf(), Some(*os)),
+            };
+            self.reported.push(record);
         }
 
         fn finish_file(&mut self) {
@@ -422,31 +438,15 @@ mod tests {
         let reporter = &scanner.reporter;
         assert_eq!(reporter.files, 4);
         assert!(reporter.finished);
-        assert!(
+        let has = |path: &str, os: Option<Os>| {
             reporter
                 .reported
                 .iter()
-                .any(|r| matches!(
-                    r,
-                    ScanResult::Invalid { path, os: Os::Windows, .. }
-                        if path == Path::new("/root/sub/bad:.txt")
-                ))
-        );
-        assert!(
-            reporter
-                .reported
-                .iter()
-                .any(|r| matches!(
-                    r,
-                    ScanResult::Invalid { path, os: Os::MacOs, .. }
-                        if path == Path::new("/root/sub/bad:.txt")
-                ))
-        );
-        assert!(
-            reporter
-                .reported
-                .iter()
-                .any(|r| matches!(r, ScanResult::Ok(path) if path == Path::new("/root/ok.txt")))
-        );
+                .any(|(result_path, result_os)| result_path == Path::new(path) && *result_os == os)
+        };
+
+        assert!(has("/root/sub/bad:.txt", Some(Os::Windows)));
+        assert!(has("/root/sub/bad:.txt", Some(Os::MacOs)));
+        assert!(has("/root/ok.txt", None));
     }
 }

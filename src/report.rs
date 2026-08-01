@@ -5,7 +5,7 @@ use crate::scan::ScanResult;
 /// A reporter that receives the [`ScanResult`]s of a directory scan.
 pub trait Reporter {
     /// Reports the scan result of one file name.
-    fn report(&mut self, result: &ScanResult);
+    fn report(&mut self, result: &ScanResult<'_>);
     /// Ends the scan of one file or directory.
     fn finish_file(&mut self);
     /// Ends the full scan.
@@ -32,7 +32,7 @@ impl StdioReporter {
 }
 
 impl Reporter for StdioReporter {
-    fn report(&mut self, result: &ScanResult) {
+    fn report(&mut self, result: &ScanResult<'_>) {
         if let ScanResult::Invalid { path, matches, os } = result {
             if self.is_last_line_progress {
                 print!("\r");
