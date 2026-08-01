@@ -7,3 +7,4 @@ pub mod cli;
 pub mod io;
 pub mod report;
 pub mod scan;
+pub mod term;

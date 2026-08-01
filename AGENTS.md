@@ -24,6 +24,7 @@ not permit in file names.
 | `src/io.rs`    | The file system access.                     |
 | `src/scan.rs`  | The scan logic and the scan result types.   |
 | `src/report.rs`| The output of the scan results.             |
+| `src/term.rs`  | The terminal escape sequences.              |
 | `tests/cli.rs` | The tests for the command-line interface.   |
 
 ## Comment rules

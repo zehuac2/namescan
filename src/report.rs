@@ -1,6 +1,7 @@
 use std::io::{self, Write};
 
 use crate::scan::ScanResult;
+use crate::term::{CARRIAGE_RETURN, CLEAR_TO_LINE_END};
 
 /// A reporter that receives the [`ScanResult`]s of a directory scan.
 pub trait Reporter {
@@ -35,7 +36,7 @@ impl Reporter for StdioReporter {
     fn report(&mut self, result: &ScanResult<'_>) {
         if let ScanResult::Invalid { path, matches, os } = result {
             if self.is_last_line_progress {
-                print!("\r");
+                print!("{CARRIAGE_RETURN}{CLEAR_TO_LINE_END}");
                 self.is_last_line_progress = false;
             }
             let characters = matches
@@ -51,7 +52,7 @@ impl Reporter for StdioReporter {
         self.count += 1;
 
         if self.count.is_multiple_of(self.report_increment) {
-            print!("\r{} items scanned", self.count);
+            print!("{CARRIAGE_RETURN}{} items scanned", self.count);
             let _ = io::stdout().flush();
             self.is_last_line_progress = true;
         }
