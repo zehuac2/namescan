@@ -17,15 +17,15 @@ not permit in file names.
 
 ## Project structure
 
-| Path           | Description                                 |
-| -------------- | ------------------------------------------- |
-| `src/main.rs`  | The entry point of the program.             |
-| `src/cli.rs`   | The command-line interface.                 |
-| `src/io.rs`    | The file system access.                     |
-| `src/scan.rs`  | The scan logic and the scan result types.   |
-| `src/report.rs`| The output of the scan results.             |
-| `src/term.rs`  | The terminal escape sequences.              |
-| `tests/cli.rs` | The tests for the command-line interface.   |
+| Path           | Description                                            |
+| -------------- | ------------------------------------------------------- |
+| `src/main.rs`  | The entry point of the program.                        |
+| `src/cli.rs`   | The command-line interface.                             |
+| `src/io/`      | The file system access. One file holds one type.        |
+| `src/scan/`    | The scan logic and the scan result types. One file holds one type. |
+| `src/report/`  | The output of the scan results. One file holds one type. |
+| `src/term.rs`  | The terminal escape sequences.                          |
+| `tests/cli.rs` | The tests for the command-line interface.               |
 
 ## Comment rules
 
