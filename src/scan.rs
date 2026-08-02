@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fmt;
 use std::io;
 use std::path::Path;
@@ -23,6 +24,49 @@ impl fmt::Display for Os {
     }
 }
 
+/// A group of operating systems.
+///
+/// The type gives the operations of a set. It holds each member in one bit
+/// of one byte. Thus one table entry can tell which operating systems forbid
+/// one byte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OsSet(u8);
+
+impl OsSet {
+    /// A group with no member.
+    pub const EMPTY: Self = Self(0);
+    /// A group with only Windows.
+    pub const WINDOWS: Self = Self(1);
+    /// A group with only macOS.
+    pub const MACOS: Self = Self(1 << 1);
+
+    /// Gives the group that holds only `os`.
+    pub const fn of(os: Os) -> Self {
+        match os {
+            Os::Windows => Self::WINDOWS,
+            Os::MacOs => Self::MACOS,
+            // Linux forbids only '/'. A file name cannot contain '/'. Thus
+            // the scan gives no result for Linux.
+            Os::Linux => Self::EMPTY,
+        }
+    }
+
+    /// Tells if the group has no member.
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Tells if the group holds each member of `other`.
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// Gives the group with the members of the two groups.
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
 /// A forbidden character that the program finds in a file name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CharMatch {
@@ -44,56 +88,166 @@ impl fmt::Display for CharMatch {
 /// full path, thus an owned path made one allocation and one copy for each
 /// item in the tree. The reporter reads the path and then the program
 /// discards the result, thus the result does not need its own path.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// The result also does not keep the forbidden characters. A `Vec` of the
+/// characters made one allocation for each invalid name. [`Self::matches`]
+/// finds the characters again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScanResult<'a> {
     Ok(&'a Path),
-    Invalid {
-        path: &'a Path,
-        matches: Vec<CharMatch>,
-        os: Os,
-    },
+    Invalid { path: &'a Path, os: Os },
+}
+
+impl<'a> ScanResult<'a> {
+    /// Gives the forbidden characters in the file name.
+    ///
+    /// The result does not keep the characters, thus this method reads the
+    /// name one more time. Only the report needs the characters, and the
+    /// report runs only for an invalid name. A correct name gives no
+    /// character.
+    pub fn matches(&self) -> Matches<'a> {
+        match *self {
+            ScanResult::Ok(_) => Matches::new("", OsSet::EMPTY),
+            ScanResult::Invalid { path, os } => Matches::new(
+                path.file_name().unwrap_or_default().to_string_lossy(),
+                OsSet::of(os),
+            ),
+        }
+    }
 }
 
 impl fmt::Display for ScanResult<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ScanResult::Ok(path) => write!(f, "OK: {}", path.display()),
-            ScanResult::Invalid { path, matches, os } => {
-                let characters = matches
-                    .iter()
-                    .map(|m| m.character.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(
-                    f,
-                    "Invalid: {}, Characters: {}, OS: {}",
-                    path.display(),
-                    characters,
-                    os
-                )
+            ScanResult::Invalid { path, os } => {
+                write!(f, "Invalid: {}, Characters: ", path.display())?;
+                // Write each character directly. A `Vec` of `String`s and a
+                // `join` made more allocations.
+                for (position, character_match) in self.matches().enumerate() {
+                    if position > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", character_match.character)?;
+                }
+                write!(f, ", OS: {os}")
             }
         }
     }
 }
 
-/// A table that tells for each byte if the byte is a forbidden character.
-type ForbiddenTable = [bool; 256];
+/// An iterator that gives the forbidden characters in a file name.
+///
+/// The iterator makes no allocation for a name that is valid UTF-8, because
+/// `OsStr::to_string_lossy` borrows such a name.
+pub struct Matches<'a> {
+    /// The file name.
+    text: Cow<'a, str>,
+    /// The byte offset of the next character in `text`.
+    offset: usize,
+    /// The index of the next character. [`CharMatch::index`] counts the
+    /// characters and does not count the bytes.
+    index: usize,
+    /// The group of the operating system with the rule.
+    os: OsSet,
+}
 
-/// Makes a [`ForbiddenTable`] from a list of forbidden characters.
+impl<'a> Matches<'a> {
+    fn new(text: impl Into<Cow<'a, str>>, os: OsSet) -> Self {
+        Self {
+            text: text.into(),
+            offset: 0,
+            index: 0,
+            os,
+        }
+    }
+}
+
+impl Iterator for Matches<'_> {
+    type Item = CharMatch;
+
+    fn next(&mut self) -> Option<CharMatch> {
+        // An empty group has no rule. Each group contains the empty group,
+        // thus the test below would give each character.
+        if self.os.is_empty() {
+            return None;
+        }
+
+        // The type keeps a byte offset and does not keep a `Chars`. A
+        // `Chars` borrows the text, and this type owns the text.
+        while let Some(character) = self.text[self.offset..].chars().next() {
+            let index = self.index;
+            self.offset += character.len_utf8();
+            self.index += 1;
+
+            if character.is_ascii() && FilenameScanner::TABLE[character as usize].contains(self.os) {
+                return Some(CharMatch { character, index });
+            }
+        }
+
+        None
+    }
+}
+
+/// The results of the scan of one file name.
+///
+/// The scan gives a maximum of two results: one result for each operating
+/// system with a rule. The type holds the results inline, thus
+/// [`FilenameScanner::scan`] makes no allocation.
+#[derive(Debug, Clone)]
+pub struct ScanResults<'a> {
+    results: [Option<ScanResult<'a>>; 2],
+    /// The index of the next slot in `results`.
+    index: usize,
+}
+
+impl<'a> ScanResults<'a> {
+    /// Makes the results from the slots. An empty slot gives no result.
+    fn new(results: [Option<ScanResult<'a>>; 2]) -> Self {
+        Self { results, index: 0 }
+    }
+
+    /// Makes the results with one result.
+    fn one(result: ScanResult<'a>) -> Self {
+        Self::new([Some(result), None])
+    }
+}
+
+impl<'a> Iterator for ScanResults<'a> {
+    type Item = ScanResult<'a>;
+
+    fn next(&mut self) -> Option<ScanResult<'a>> {
+        while self.index < self.results.len() {
+            let result = self.results[self.index];
+            self.index += 1;
+
+            if result.is_some() {
+                return result;
+            }
+        }
+
+        None
+    }
+}
+
+/// A table that tells for each byte which operating systems forbid the byte.
+type ForbiddenTable = [OsSet; 256];
+
+/// Adds the forbidden characters of one operating system to `table`.
 ///
 /// The table gives a test that takes a constant time. A search with
 /// `slice::contains` compares the character with each character in the list.
+/// One table for all the operating systems gives one pass over the name.
 ///
 /// The function runs at compile time. It stops the build if a character is
 /// not ASCII, because the table holds one entry for each byte value.
-const fn make_table(forbidden: &[char]) -> ForbiddenTable {
-    let mut table = [false; 256];
+const fn add_to_table(mut table: ForbiddenTable, os: OsSet, forbidden: &[char]) -> ForbiddenTable {
     let mut index = 0;
 
     while index < forbidden.len() {
         let character = forbidden[index];
         assert!(character.is_ascii(), "a forbidden character must be ASCII");
-        table[character as usize] = true;
+        table[character as usize] = table[character as usize].union(os);
         index += 1;
     }
 
@@ -110,10 +264,16 @@ impl FilenameScanner {
     /// Characters forbidden in macOS file names.
     pub const MACOS_FORBIDDEN: &'static [char] = &[':'];
 
-    /// The table for [`Self::WINDOWS_FORBIDDEN`].
-    const WINDOWS_TABLE: ForbiddenTable = make_table(Self::WINDOWS_FORBIDDEN);
-    /// The table for [`Self::MACOS_FORBIDDEN`].
-    const MACOS_TABLE: ForbiddenTable = make_table(Self::MACOS_FORBIDDEN);
+    /// The table for all the operating systems.
+    const TABLE: ForbiddenTable = add_to_table(
+        add_to_table(
+            [OsSet::EMPTY; 256],
+            OsSet::WINDOWS,
+            Self::WINDOWS_FORBIDDEN,
+        ),
+        OsSet::MACOS,
+        Self::MACOS_FORBIDDEN,
+    );
 
     pub fn new() -> Self {
         Self
@@ -124,54 +284,44 @@ impl FilenameScanner {
     /// The function returns one [`ScanResult::Invalid`] for each violated
     /// file name rule. The function returns one [`ScanResult::Ok`] when the
     /// file name has no forbidden characters.
-    pub fn scan<'a>(&self, path: &'a Path) -> Vec<ScanResult<'a>> {
-        let name = path.file_name().unwrap_or_default();
-
+    pub fn scan<'a>(&self, path: &'a Path) -> ScanResults<'a> {
         // Examine the raw bytes of the name. `OsStr::to_string_lossy` makes
         // a `String` for each file name, also for a correct name. The bytes
         // of an `OsStr` hold each ASCII character as itself on all the
-        // platforms. All the forbidden characters are ASCII. Thus the tables
-        // work on the raw bytes and the scan needs no conversion.
-        let bytes = name.as_encoded_bytes();
+        // platforms. All the forbidden characters are ASCII. Thus the table
+        // works on the raw bytes and the scan needs no conversion.
+        let bytes = path.file_name().unwrap_or_default().as_encoded_bytes();
 
-        let has_windows_match = Self::has_forbidden(bytes, &Self::WINDOWS_TABLE);
-        let has_macos_match = Self::has_forbidden(bytes, &Self::MACOS_TABLE);
+        let forbidden = Self::forbidden_os(bytes);
 
         // Linux forbids only '/'. A file name cannot contain '/'.
 
-        if !has_windows_match && !has_macos_match {
-            return vec![ScanResult::Ok(path)];
+        if forbidden.is_empty() {
+            return ScanResults::one(ScanResult::Ok(path));
         }
 
-        // Make the text of the name here. Only a name that has a forbidden
-        // character comes to this point, and the report needs the
-        // characters.
-        let text = name.to_string_lossy();
-        let mut results = Vec::new();
-
-        if has_windows_match {
-            results.push(ScanResult::Invalid {
-                path,
-                matches: Self::collect_forbidden(&text, &Self::WINDOWS_TABLE),
-                os: Os::Windows,
-            });
-        }
-
-        if has_macos_match {
-            results.push(ScanResult::Invalid {
-                path,
-                matches: Self::collect_forbidden(&text, &Self::MACOS_TABLE),
-                os: Os::MacOs,
-            });
-        }
-
-        results
+        ScanResults::new([
+            forbidden
+                .contains(OsSet::WINDOWS)
+                .then_some(ScanResult::Invalid {
+                    path,
+                    os: Os::Windows,
+                }),
+            forbidden
+                .contains(OsSet::MACOS)
+                .then_some(ScanResult::Invalid {
+                    path,
+                    os: Os::MacOs,
+                }),
+        ])
     }
 
-    /// Tells if `bytes` holds a character that `table` forbids.
+    /// Gives the operating systems that forbid a character in `bytes`.
     ///
-    /// This is the fast pass. It runs for each file name in the tree.
-    fn has_forbidden(bytes: &[u8], table: &ForbiddenTable) -> bool {
+    /// This is the fast pass. It runs for each file name in the tree. One
+    /// table holds all the operating systems, thus the pass reads each byte
+    /// one time.
+    fn forbidden_os(bytes: &[u8]) -> OsSet {
         // Examine the bytes and not the characters. Each byte of a character
         // with more than one byte is 128 or more. All the forbidden
         // characters are ASCII. Thus a test of the bytes cannot give a false
@@ -179,26 +329,12 @@ impl FilenameScanner {
         //
         // The loop has no branch and does no allocation. Almost all file
         // names are correct. Thus the scan usually does no more work.
-        let mut result = false;
+        let mut result = OsSet::EMPTY;
         for byte in bytes {
-            result |= table[*byte as usize];
+            result = result.union(Self::TABLE[*byte as usize]);
         }
 
         result
-    }
-
-    /// Collects the characters in `name` that `table` forbids.
-    ///
-    /// This is the slow pass. It runs only for a file name that has a
-    /// forbidden character. Thus its speed is not important.
-    fn collect_forbidden(name: &str, table: &ForbiddenTable) -> Vec<CharMatch> {
-        // This pass decodes the characters, because `CharMatch::index`
-        // counts the characters and does not count the bytes.
-        name.chars()
-            .enumerate()
-            .filter(|(_, c)| c.is_ascii() && table[*c as usize])
-            .map(|(index, character)| CharMatch { character, index })
-            .collect()
     }
 }
 
@@ -263,25 +399,27 @@ mod tests {
     fn assert_invalid(path: &str, expected_characters: &[char], os: Os) {
         let scanner = FilenameScanner::new();
         let path_buf = PathBuf::from(path);
-        let results = scanner.scan(&path_buf);
+        let results: Vec<_> = scanner.scan(&path_buf).collect();
 
         let invalid = results.iter().find(
             |result| matches!(result, ScanResult::Invalid { os: result_os, .. } if *result_os == os),
         );
 
-        let Some(ScanResult::Invalid {
-            path: result_path,
-            matches,
-            os: result_os,
-        }) = invalid
-        else {
+        let Some(result) = invalid else {
             panic!("expected invalid result for {os:?}, got {results:?}");
+        };
+        let ScanResult::Invalid {
+            path: result_path,
+            os: result_os,
+        } = result
+        else {
+            unreachable!();
         };
 
         assert_eq!(*result_path, path_buf);
         assert_eq!(*result_os, os);
 
-        let mut actual: Vec<char> = matches.iter().map(|m| m.character).collect();
+        let mut actual: Vec<char> = result.matches().map(|m| m.character).collect();
         actual.sort_unstable();
         let mut expected = expected_characters.to_vec();
         expected.sort_unstable();
@@ -293,8 +431,7 @@ mod tests {
         // `Path::file_name` treats '\\' as a separator on Windows, so a
         // `PathBuf` cannot carry a file name that contains it. Test the
         // character-detection logic directly on the raw name instead.
-        let matches =
-            FilenameScanner::collect_forbidden("\\test.txt", &FilenameScanner::WINDOWS_TABLE);
+        let matches: Vec<_> = Matches::new("\\test.txt", OsSet::WINDOWS).collect();
         assert_eq!(
             matches,
             vec![CharMatch {
@@ -319,16 +456,13 @@ mod tests {
         // Each byte of these characters is 128 or more. Thus no byte can
         // match a forbidden ASCII character.
         let name = "café_日本語.txt";
-        assert!(!FilenameScanner::has_forbidden(
-            name.as_bytes(),
-            &FilenameScanner::WINDOWS_TABLE
-        ));
+        assert!(FilenameScanner::forbidden_os(name.as_bytes()).is_empty());
     }
 
     #[test]
     fn index_counts_the_characters_and_not_the_bytes() {
         // The character 'é' has two bytes. The index of ':' is 1 and not 2.
-        let matches = FilenameScanner::collect_forbidden("é:x", &FilenameScanner::WINDOWS_TABLE);
+        let matches: Vec<_> = Matches::new("é:x", OsSet::WINDOWS).collect();
         assert_eq!(
             matches,
             vec![CharMatch {
@@ -346,14 +480,66 @@ mod tests {
         // The byte 0xFF is not valid UTF-8. The scan reads the raw bytes,
         // thus it finds the colon. The report converts the name later.
         let path = PathBuf::from(std::ffi::OsStr::from_bytes(b"bad\xFF:name.txt"));
-        let results = FilenameScanner::new().scan(&path);
+        let results: Vec<_> = FilenameScanner::new().scan(&path).collect();
 
-        assert!(
-            results
-                .iter()
-                .any(|result| matches!(result, ScanResult::Invalid { os: Os::MacOs, .. })),
-            "got {results:?}"
+        let invalid = results
+            .iter()
+            .find(|result| matches!(result, ScanResult::Invalid { os: Os::MacOs, .. }));
+        let Some(result) = invalid else {
+            panic!("expected invalid result for macOS, got {results:?}");
+        };
+
+        // `Matches` converts the name. The lossy conversion replaces the
+        // byte 0xFF, and the colon keeps its place.
+        let characters: Vec<char> = result.matches().map(|m| m.character).collect();
+        assert_eq!(characters, vec![':']);
+    }
+
+    #[test]
+    fn a_correct_name_gives_one_ok_result() {
+        let path = PathBuf::from("/root/ok.txt");
+        let results: Vec<_> = FilenameScanner::new().scan(&path).collect();
+
+        assert_eq!(results, vec![ScanResult::Ok(&path)]);
+        assert_eq!(results[0].matches().count(), 0);
+    }
+
+    #[test]
+    fn one_pass_finds_each_operating_system() {
+        // The colon is forbidden on Windows and on macOS. One pass over the
+        // bytes gives the two results.
+        let path = PathBuf::from("test:.txt");
+        let results: Vec<_> = FilenameScanner::new().scan(&path).collect();
+
+        assert_eq!(
+            results,
+            vec![
+                ScanResult::Invalid {
+                    path: &path,
+                    os: Os::Windows
+                },
+                ScanResult::Invalid {
+                    path: &path,
+                    os: Os::MacOs
+                },
+            ]
         );
+    }
+
+    #[test]
+    fn os_set_holds_the_operating_systems() {
+        assert!(OsSet::EMPTY.is_empty());
+        assert!(!OsSet::WINDOWS.is_empty());
+
+        let both = OsSet::WINDOWS.union(OsSet::MACOS);
+        assert!(both.contains(OsSet::WINDOWS));
+        assert!(both.contains(OsSet::MACOS));
+        assert!(!OsSet::WINDOWS.contains(OsSet::MACOS));
+
+        assert_eq!(OsSet::of(Os::Windows), OsSet::WINDOWS);
+        assert_eq!(OsSet::of(Os::MacOs), OsSet::MACOS);
+        // Linux forbids only '/'. A file name cannot contain '/'.
+        assert!(OsSet::of(Os::Linux).is_empty());
     }
 
     #[test]
@@ -407,7 +593,7 @@ mod tests {
         fn report(&mut self, result: &ScanResult<'_>) {
             let record = match result {
                 ScanResult::Ok(path) => (path.to_path_buf(), None),
-                ScanResult::Invalid { path, os, .. } => (path.to_path_buf(), Some(*os)),
+                ScanResult::Invalid { path, os } => (path.to_path_buf(), Some(*os)),
             };
             self.reported.push(record);
         }

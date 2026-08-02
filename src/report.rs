@@ -34,17 +34,27 @@ impl StdioReporter {
 
 impl Reporter for StdioReporter {
     fn report(&mut self, result: &ScanResult<'_>) {
-        if let ScanResult::Invalid { path, matches, os } = result {
+        if let ScanResult::Invalid { path, os } = result {
             if self.is_last_line_progress {
                 print!("{CARRIAGE_RETURN}{CLEAR_TO_LINE_END}");
                 self.is_last_line_progress = false;
             }
-            let characters = matches
-                .iter()
-                .map(|m| m.character.to_string())
-                .collect::<Vec<_>>()
-                .join(", ");
-            println!("Invalid {}: {}; {} forbidden.", os, path.display(), characters);
+
+            // Lock the standard output one time and write each character
+            // directly. A `Vec` of `String`s and a `join` made more
+            // allocations.
+            let stdout = io::stdout();
+            let mut out = stdout.lock();
+            let _ = write!(out, "Invalid {}: {}; ", os, path.display());
+
+            for (position, character_match) in result.matches().enumerate() {
+                if position > 0 {
+                    let _ = write!(out, ", ");
+                }
+                let _ = write!(out, "{}", character_match.character);
+            }
+
+            let _ = writeln!(out, " forbidden.");
         }
     }
 
